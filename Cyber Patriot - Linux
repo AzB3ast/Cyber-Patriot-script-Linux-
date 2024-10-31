@@ -1,0 +1,116 @@
+                                                                                                      Linux – Checklist Script
+
+#!/bin/bash
+
+# Define a log file for reporting errors
+LOGFILE="/var/log/system_management_report.log"
+echo "System Management Script Report - $(date)" > $LOGFILE
+
+# Function to log errors
+function log_error {
+    echo "[ERROR] $1" | tee -a $LOGFILE
+}
+
+# Function to attempt fixes for specific errors
+function attempt_fix {
+    echo "Attempting to fix: $1"
+    case $1 in
+        "update_system") sudo apt --fix-broken install -y && sudo apt update && sudo apt upgrade -y ;;
+        "remove_unauthorized_software") sudo apt --fix-broken install -y ;;
+        "secure_ssh") sudo systemctl restart ssh ;;
+        "configure_firewall") sudo ufw enable ;;
+        *) echo "No fix available for this error." | tee -a $LOGFILE ;;
+    esac
+}
+
+# Function to update and upgrade the system
+function update_system {
+    echo "Updating package list..."
+    if ! sudo apt-get update -qq; then
+        log_error "Failed to update package list."
+        attempt_fix "update_system"
+    fi
+    echo "Upgrading system..."
+    if ! sudo apt-get upgrade -y; then
+        log_error "Failed to upgrade system packages."
+        attempt_fix "update_system"
+    fi
+    echo "System is up-to-date!" | tee -a $LOGFILE
+}
+
+# Function to remove unauthorized software
+function remove_unauthorized_software {
+    echo "Checking for unauthorized software packages..."
+    unauthorized_packages=$(dpkg --list | grep -E "sniffer|server|scanner|nmap|postfix|game")
+
+    if [ -n "$unauthorized_packages" ]; then
+        echo "Unauthorized software found: $unauthorized_packages"
+        read -p "Do you want to remove these packages? (y/n): " choice
+        if [ "$choice" == "y" ]; then
+            if ! sudo apt-get remove --purge $unauthorized_packages -y; then
+                log_error "Failed to remove unauthorized software."
+                attempt_fix "remove_unauthorized_software"
+            else
+                echo "Unauthorized software removed." | tee -a $LOGFILE
+            fi
+        else
+            echo "No software was removed."
+        fi
+    else
+        echo "No unauthorized software found." | tee -a $LOGFILE
+    fi
+}
+
+# Function to secure the SSH server
+function secure_ssh {
+    echo "Securing SSH server..."
+    sudo sed -i 's/^#LogLevel.*/LogLevel VERBOSE/' /etc/ssh/sshd_config
+    sudo sed -i 's/^PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+    
+    if ! sudo systemctl restart ssh; then
+        log_error "Failed to restart SSH after security modifications."
+        attempt_fix "secure_ssh"
+    else
+        echo "SSH security settings applied and SSH service restarted." | tee -a $LOGFILE
+    fi
+}
+
+# Function to configure the firewall
+function configure_firewall {
+    echo "Configuring firewall..."
+    sudo ufw default deny incoming
+    sudo ufw default allow outgoing
+    sudo ufw allow ssh
+    
+    if ! sudo ufw enable; then
+        log_error "Failed to enable firewall."
+        attempt_fix "configure_firewall"
+    else
+        echo "Firewall configured and enabled!" | tee -a $LOGFILE
+    fi
+}
+
+# Main menu
+function menu {
+    while true; do
+        echo "System Management Script"
+        echo "1. Update and Upgrade System"
+        echo "2. Remove Unauthorized Software"
+        echo "3. Secure SSH Server"
+        echo "4. Configure Firewall"
+        echo "5. Exit"
+        read -p "Select an option: " option
+
+        case $option in
+            1) update_system ;;
+            2) remove_unauthorized_software ;;
+            3) secure_ssh ;;
+            4) configure_firewall ;;
+            5) exit ;;
+            *) echo "Invalid option!" ;;
+        esac
+    done
+}
+
+# Run the menu function
+menu
