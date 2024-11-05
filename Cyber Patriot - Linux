@@ -114,3 +114,6 @@ function menu {
 
 # Run the menu function
 menu
+
+
+# Still need to check the image and try to get all points in image. 
