@@ -1,0 +1,218 @@
+#!/bin/bash
+
+# Baseline and System Management Script for CyberPatriot
+
+# Output file for reporting
+OUTPUT_FILE="cyberpatriot_report.txt"
+LOGFILE="/var/log/system_management_report.log"
+
+# Define colors for output formatting
+RED="\033[0;31m"
+GREEN="\033[0;32m"
+YELLOW="\033[1;33m"
+RESET="\033[0m"
+
+# Function to handle errors
+handle_error() {
+  echo -e "${RED}[ERROR] $1${RESET}" >> "$OUTPUT_FILE"
+  echo "[ERROR] $1" | tee -a $LOGFILE
+}
+
+# Function to log successful actions
+log_success() {
+  echo -e "${GREEN}[SUCCESS] $1${RESET}" >> "$OUTPUT_FILE"
+  echo "[SUCCESS] $1" | tee -a $LOGFILE
+}
+
+# Function to update password policy settings
+update_password_policies() {
+  echo "Updating Password Policy Settings..." >> "$OUTPUT_FILE"
+  if sudo sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS 30/' /etc/login.defs && \
+     sudo sed -i 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS 10/' /etc/login.defs && \
+     sudo sed -i 's/^PASS_MIN_LEN.*/PASS_MIN_LEN 10/' /etc/login.defs && \
+     sudo sed -i 's/^PASS_WARN_AGE.*/PASS_WARN_AGE 7/' /etc/login.defs; then
+    log_success "Password policies updated successfully."
+  else
+    handle_error "Failed to update password policies."
+  fi
+}
+
+# Function to collect user information
+collect_user_info() {
+  echo "Collecting User Accounts Information..." >> "$OUTPUT_FILE"
+  user_list=$(getent passwd | cut -d: -f1) || handle_error "Failed to retrieve user list."
+
+  echo "User Accounts Information:" >> "$OUTPUT_FILE"
+  for user in $user_list; do
+    user_info=$(id "$user") || { handle_error "Failed to get info for user $user."; continue; }
+    home_dir=$(getent passwd "$user" | cut -d: -f6) || { handle_error "Failed to get home directory for user $user."; continue; }
+
+    if [ -d "$home_dir" ]; then
+      file_count=$(find "$home_dir" -type f 2>/dev/null | wc -l) || file_count=0
+      dir_count=$(find "$home_dir" -type d 2>/dev/null | wc -l) || dir_count=0
+    else
+      file_count=0
+      dir_count=0
+    fi
+
+    echo "User: $user" >> "$OUTPUT_FILE"
+    echo "User Info: $user_info" >> "$OUTPUT_FILE"
+    echo "Home Directory: $home_dir" >> "$OUTPUT_FILE"
+    echo "Number of Files in Home Directory: $file_count" >> "$OUTPUT_FILE"
+    echo "Number of Directories in Home Directory: $dir_count" >> "$OUTPUT_FILE"
+    echo "---------------------------" >> "$OUTPUT_FILE"
+  done
+}
+
+# Function to update system and packages
+update_system() {
+  echo "Updating System and Packages..." >> "$OUTPUT_FILE"
+  if sudo apt update -y && sudo apt upgrade -y -o APT::Acquire::Retries=5 && sudo apt dist-upgrade -y -o APT::Acquire::Retries=5 && sudo apt autoremove -y; then
+    log_success "System and packages updated."
+  else
+    handle_error "Failed to update the system."
+  fi
+}
+
+# Function to check for unauthorized software
+remove_unauthorized_software() {
+  echo "Checking for unauthorized software packages..." >> "$OUTPUT_FILE"
+  unauthorized_packages=$(dpkg --list | grep -E "sniffer|server|scanner|nmap|postfix|game")
+
+  if [ -n "$unauthorized_packages" ]; then
+    echo "Unauthorized software found: $unauthorized_packages" >> "$OUTPUT_FILE"
+    read -p "Do you want to remove these packages? (y/n): " choice
+    if [ "$choice" == "y" ]; then
+      if ! sudo apt-get remove --purge $unauthorized_packages -y; then
+        handle_error "Failed to remove unauthorized software."
+      else
+        log_success "Unauthorized software removed."
+      fi
+    else
+      echo "No software was removed." >> "$OUTPUT_FILE"
+    fi
+  else
+    echo "No unauthorized software found." >> "$OUTPUT_FILE"
+  fi
+}
+
+# Function to secure SSH
+secure_ssh() {
+  echo "Securing SSH server..." >> "$OUTPUT_FILE"
+  sudo sed -i 's/^#LogLevel.*/LogLevel VERBOSE/' /etc/ssh/sshd_config
+  sudo sed -i 's/^PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+  
+  if ! sudo systemctl restart ssh; then
+    handle_error "Failed to restart SSH after security modifications."
+  else
+    log_success "SSH security settings applied and SSH service restarted."
+  fi
+}
+
+# Function to configure firewall
+configure_firewall() {
+  echo "Configuring firewall..." >> "$OUTPUT_FILE"
+  sudo ufw default deny incoming
+  sudo ufw default allow outgoing
+  sudo ufw allow ssh
+  
+  if ! sudo ufw enable; then
+    handle_error "Failed to enable firewall."
+  else
+    log_success "Firewall configured and enabled."
+  fi
+}
+
+# Function to collect system network information
+collect_network_info() {
+  echo "Collecting Network Information..." >> "$OUTPUT_FILE"
+  ip -4 addr show >> "$OUTPUT_FILE" || handle_error "Failed to collect network information."
+}
+
+# Function to collect open ports
+collect_open_ports() {
+  echo "Collecting Open Ports Information..." >> "$OUTPUT_FILE"
+  sudo ss -tuln >> "$OUTPUT_FILE" || handle_error "Failed to collect open ports information."
+}
+
+# Function to collect running services
+collect_running_services() {
+  echo "Collecting Running Services..." >> "$OUTPUT_FILE"
+  systemctl list-units --type=service --state=running >> "$OUTPUT_FILE" || handle_error "Failed to collect running services information."
+}
+
+# Function to search for world-writable files
+search_world_writable_files() {
+  echo "Searching for World-Writable Files..." >> "$OUTPUT_FILE"
+  find / -xdev -type f -perm -0002 2>/dev/null >> "$OUTPUT_FILE" || handle_error "Failed to search for world-writable files."
+}
+
+# Function to check for weak file permissions
+check_file_permissions() {
+  echo "Checking for Weak File Permissions..." >> "$OUTPUT_FILE"
+  find /etc -type f -perm -o=w 2>/dev/null >> "$OUTPUT_FILE" || handle_error "Failed to check for weak file permissions."
+}
+
+# Function to check for unnecessary services
+check_unnecessary_services() {
+  echo "Checking for Unnecessary Services..." >> "$OUTPUT_FILE"
+  systemctl list-units --type=service --state=running | grep -E "bluetooth|cups|avahi|nfs" >> "$OUTPUT_FILE" || handle_error "Failed to check for unnecessary services."
+}
+
+# Function to perform OWASP-recommended security checks
+perform_owasp_checks() {
+  # Check for root login via SSH
+  echo "Checking Root Login via SSH..." >> "$OUTPUT_FILE"
+  grep -i "PermitRootLogin" /etc/ssh/sshd_config >> "$OUTPUT_FILE" || handle_error "Failed to check SSH root login settings."
+}
+
+# Main menu function
+menu() {
+  while true; do
+    echo -e "${YELLOW}CyberPatriot System Audit & Management Script${RESET}"
+    echo "1) Update System and Packages"
+    echo "2) Update Password Policies"
+    echo "3) Collect User Information"
+    echo "4) Collect Network Information"
+    echo "5) Collect Open Ports"
+    echo "6) Collect Running Services"
+    echo "7) Remove Unauthorized Software"
+    echo "8) Secure SSH"
+    echo "9) Configure Firewall"
+    echo "10) Search for World-Writable Files"
+    echo "11) Check for Weak File Permissions"
+    echo "12) Check for Unnecessary Services"
+    echo "13) Perform OWASP Security Checks"
+    echo "14) Run All Tasks"
+    echo "15) Exit"
+
+    read -rp "Enter your choice: " choice
+
+    case $choice in
+      1) update_system ;;
+      2) update_password_policies ;;
+      3) collect_user_info ;;
+      4) collect_network_info ;;
+      5) collect_open_ports ;;
+      6) collect_running_services ;;
+      7) remove_unauthorized_software ;;
+      8) secure_ssh ;;
+      9) configure_firewall ;;
+      10) search_world_writable_files ;;
+      11) check_file_permissions ;;
+      12) check_unnecessary_services ;;
+      13) perform_owasp_checks ;;
+      14) 
+        update_system
+        update_password_policies
+        collect_user_info
+        collect_network_info
+        collect_open_ports
+        collect_running_services
+        remove_unauthorized_software
+        secure_ssh
+        configure_firewall
+        search_world_writable_files
+        check_file_permissions
+        check_unnecessary_services
+        perform_
