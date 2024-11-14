@@ -1,0 +1,612 @@
+#!/bin/bash
+# glossary
+
+glossary="
+a. Function all (maybe not working so better not run rn)
+1. Config Firewall
+2. User Management
+3. Bad Files
+4. SSH Config
+5. Password policies
+6. System Kernel Config
+7. Media files
+8. Services Config
+9. Crontabs config
+10. File permissions"
+
+############################################################################# Glossary ############################################################################
+function display_glossary() {
+    echo "Options"
+    echo "-------"
+    echo -e "$glossary"
+    echo
+}
+
+############################################################################# User Input ############################################################################
+function get_user_input() {
+    read -p "Enter the function number to go to (0 to exit): " choice
+    case "$choice" in
+        0)
+            echo "Exiting..."
+            exit 0
+            ;;
+        a)
+            function_all
+            ;;
+        1)
+            firewall_config
+            ;;
+        2)
+            user_management
+            ;;
+        3)
+            bad_files
+            ;;
+        4)
+            ssh_config
+            ;;
+        5)
+            password_policy
+            ;;
+        6)
+            system_kernel
+            ;;
+        7)
+            media_files
+            ;;
+        8) 
+            services_config
+            ;;
+        9)
+            crontabs_config
+            ;;
+        10)
+            file_permissions
+            ;;
+        *)
+            echo "Invalid choice. You misclicked."
+            ;;
+    esac
+}
+
+# Output file
+output_file="report.txt"
+
+# Function to handle errors
+handle_error() {
+echo "[ERROR] $1" >> "$output_file"
+}
+
+# function all
+function function_all() {
+    # add all the functions here
+    firewall_config
+    user_management
+    bad_files
+    ssh_config
+    password_policy
+    system_kernel
+    media_files
+    services_config
+    file_permissions
+    
+    get_user_input
+}
+
+############################################################################ Configure Firewall Settings #############################################################
+function firewall_config() {
+    echo "Installing ufw if it hasn't already been installed" >> "$output_file"
+    {
+        ########################################## Main #################################################################################
+        apt install ufw -y -qq
+        ufw enable
+        ufw default deny incoming
+        ufw default allow outgoing
+        echo "Do you need ssh? (yes/no)"
+        read sshYN
+        if [ "$sshYN" == "yes" ]; then
+            ufw allow ssh
+        fi
+
+        ############################################################ Allow/Block specific IP addresses ###########################################
+        echo "Do you want to allow or block a specific IP? (allow/block/no)"
+        read ip_action
+        if [ "$ip_action" == "allow" ]; then
+        echo "Enter the IP address to allow:"
+        read ip_address
+        ufw allow from "$ip_address"
+        elif [ "$ip_action" == "block" ]; then
+        echo "Enter the IP address to block:"
+        read ip_address
+        ufw deny from "$ip_address"
+        fi
+
+        ################################ Allowing services ####################################################################################
+
+        # Allow Rsync from specific IP or subnet
+        echo "Do you need to allow Rsync? (yes/no)"
+        read rsyncYN
+        if [ "$rsyncYN" == "yes" ]; then
+            echo "Enter the IP address or subnet (e.g., 203.0.113.103 or 203.0.113.0/24):"
+            read rsyncIP
+            ufw allow from "$rsyncIP" to any port 873
+            echo "Rsync has been allowed from $rsyncIP." >> "$output_file"
+        fi
+
+        # Allow Nginx HTTP/HTTPS
+        echo "Allow Nginx (yes/no)?"
+        read nginxYN
+        if [ "$nginxYN" == "yes" ]; then
+            ufw allow "Nginx Full"
+            echo "Nginx Full has been allowed." >> "$output_file"
+        fi
+
+        # Allow Apache HTTP/HTTPS
+        echo "Allow Apache (yes/no)?"
+        read apacheYN
+        if [ "$apacheYN" == "yes" ]; then
+            ufw allow "Apache Full"
+            echo "Apache Full has been allowed." >> "$output_file"
+        fi
+
+        # Allow MySQL from specific IP or subnet
+        echo "Do you need to allow MySQL? (yes/no)"
+        read mysqlYN
+        if [ "$mysqlYN" == "yes" ]; then
+            echo "Enter the IP address or subnet (e.g., 203.0.113.103 or 203.0.113.0/24):"
+            read mysqlIP
+            ufw allow from "$mysqlIP" to any port 3306
+            echo "MySQL has been allowed from $mysqlIP." >> "$output_file"
+        fi
+
+        # Allow PostgreSQL from specific IP or subnet
+        echo "Do you need to allow PostgreSQL? (yes/no)"
+        read postgresYN
+        if [ "$postgresYN" == "yes" ]; then
+            echo "Enter the IP address or subnet (e.g., 203.0.113.103 or 203.0.113.0/24):"
+            read postgresIP
+            ufw allow from "$postgresIP" to any port 5432
+            echo "PostgreSQL has been allowed from $postgresIP." >> "$output_file"
+        fi
+
+        # Block outgoing SMTP
+        echo "Do you want to block outgoing SMTP traffic? (yes/no)"
+        read smtpYN
+        if [ "$smtpYN" == "yes" ]; then
+            ufw deny out 25
+            echo "Outgoing SMTP traffic has been blocked." >> "$output_file"
+        fi
+        echo "ufw has been configured" >> "$output_file"
+    }
+    if [ $? -ne 0 ]; then
+        handle_error "Function firewall_config didn't work. Help may be found on https://www.digitalocean.com/community/tutorials/ufw-essentials-common-firewall-rules-and-commands "
+        return 1
+    fi
+    # get_user_input
+}
+
+############################################################################# User Management Config #########################################################################
+function user_management() { 
+    # Adding users
+    echo "Adding Users" >> "$output_file"
+    {
+        read -p "Enter usernames to add (separated by space): " -a users_to_add
+        for username in "${users_to_add[@]}"; do
+            sudo adduser $username
+        done
+        # Removing users
+        echo "Step 2: Remove Users"
+        read -p "Enter usernames to remove (separated by space): " -a users_to_remove
+        for username in "${users_to_remove[@]}"; do
+            sudo deluser $username
+        done
+        # Removing users from a group
+        echo "Step 3: Remove Users from a Group"
+        read -p "Enter the group name: " group_to_remove
+        read -p "Enter usernames to remove from '$group_to_remove' (separated by space): " -a users_to_remove_from_group
+        for username in "${users_to_remove_from_group[@]}"; do
+            sudo deluser $username $group_to_remove
+        done
+        # Adding users to a group
+        echo "Step 4: Add Users to a Group"
+        read -p "Enter the group name: " group_to_add
+        read -p "Enter usernames to add to '$group_to_add' (separated by space): " -a users_to_add_to_group
+        for username in "${users_to_add_to_group[@]}"; do
+            sudo usermod -aG $group_to_add $username
+        done
+        # Changing passwords
+        echo "Step 5: Change User Passwords"
+        read -p "Enter usernames to change passwords for (separated by space): " -a users_to_change_password
+        read -sp "Enter the new password: (3x!^X9s3nO@P8%B1*Zt#UqR7)" new_password
+        echo "password for all listed users except you has been set to '3x!^X9s3nO@P8%B1*Zt#UqR7' " >> "$output_file"
+        for username in "${users_to_change_password[@]}"; do
+            echo "$username:$new_password" | sudo chpasswd
+        done
+    }
+    if [ $? -ne 0 ]; then
+        handle_error "user management didnt work"
+        return 1
+    fi
+    # get_user_input
+}
+
+############################################################################# Deleting bad files ############################################################################
+function bad_files() {
+    echo "Starting bad files management" >> "$output_file"
+    {
+    # list of packages
+    packages_to_purge=(
+        "telnet" "ftp" "rsh-client" "rlogin" "rcp" "rsh-server" "xinetd" "finger" 
+        "ypbind" "ypserv" "tftp" "talk" "telnetd" "rwho" "rwall" "rwhod" "rusers" 
+        "rexec" "rsh" "xrdp" "vnc-server" "tightvncserver" "x11vnc" "nis" "rpcbind" 
+        "ldap-utils" "samba-common" "samba-player" "samba-common-bin" 
+        "nfs-kernel-server" "snmp" "postfix" "sendmail" "tftpd" "dovecot-core" 
+        "dovecot-pop3d" "deluge-common" "deluge-gtk" "openvpn" "orca" 
+        "ettercap-common" "ettercap-graphical" "nmap" "netcat" "netcat-openbsd" 
+        "nc" "masscan" "enum4linux" "wireshark-common" "wireshark-qt" 
+        "libwireshark-data" "yersinia" "armitage" "backdoor-factory" "beef" 
+        "cisco-auditing-tool" "cisco-global-exploiter" "cisco-ocs" "commix" "crackle" 
+        "exploitdb" "jboss-autopwn" "linux-exploit-suggester" "routersploit" 
+        "shellnoob" "sqlmap" "thc-ipv6" "metasploit" "metasploit-framework" "wpscan" 
+        "john" "hydra" "hydra-gtk" "ophcrack" "hashcat" "aircrack-ng" "kismet" 
+        "reaver" "pixiewps" "fern-wifi-cracker" "asleap" "bluesnarfer" "bully" 
+        "pyrit" "spooftooph" "multimon-ng" "mdk3" "packetforge-ng" "wifite" 
+        "airbase-ng" "airdecap-ng" "airodump-ng" "aireplay-ng" "wifi-honey" 
+        "gr-scan" "arachni" "bbqsql" "blindelephant" "burp-suite" "cutycapt" 
+        "davtest" "deblaze" "dirb" "dirbuster" "fimap" "funkload" "gobuster" 
+        "joomscan" "nikto" "paros" "plecost" "powerfuzzer" "recon-ng" "skipfish" 
+        "uniscan" "w3af" "webscarab" "webshag" "webslayer" "websploit" "wfuzz" 
+        "whatweb" "xsser" "zaproxy" "binwalk" "bulk-extractor" "dc3dd" "ddrescue" 
+        "distorm3" "dumpzilla" "foremost" "guymager" "pdf-parser" "regripper" 
+        "volatility" "t50" "termineter" "thc-ssl-dos" "slowhttptest" "inviteflood" 
+        "ipv6-toolkit" "iaxflood" "inundator" "dhcpig" "rtpflood" "backdoor" 
+        "mole" "themole" "zenmap" "pwnkit"
+    ) 
+    
+    # Loop through each package keyword
+    for package in "${packages_to_purge[@]}"; do
+        # Search for installed packages that match the keyword
+        matches=$(dpkg -l | grep "$package" | awk '{print $2}')
+        
+        if [ -z "$matches" ]; then
+            echo "No installed packages found for '$package'"
+        else
+            # Loop through each matched package and ask for confirmation before purging
+            for match in $matches; do
+                read -p "Do you want to purge $match? (y/n): " confirm
+                if [[ $confirm == "y" ]]; then
+                    sudo apt-get purge "$match" -y
+                    echo "$match purged successfully."
+                else
+                    echo "$match was not purged."
+                fi
+            done
+        fi
+    done
+    }
+    if [ $? -ne 0 ]; then
+        handle_error "file purging no work"
+        return 1
+    fi
+    # get_user_input
+}
+
+############################################################################# ssh config ############################################################################
+function ssh_config() {
+    echo "Initializing SSH Configuration..." >> "$output_file"
+    
+    # Backup existing sshd_config
+    echo "Backing up current SSH configuration..." >> "$output_file"
+    cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+    if [ $? -ne 0 ]; then
+        handle_error "Failed to backup sshd_config"
+        return 1
+    fi
+
+    # Install SSH (without Google Authenticator to avoid CyberPatriot penalties)
+    apt-get -y -qq update && apt-get -y -qq install openssh-server
+    if [ $? -ne 0 ]; then
+        handle_error "Failed to install required packages"
+        return 1
+    fi
+
+    # Allow SSH through the firewall
+    ufw allow ssh
+    if [ $? -ne 0 ]; then
+        handle_error "Failed to allow SSH through UFW"
+        return 1
+    fi
+
+    # Prompt for allowed SSH users
+    echo "Type all user account names, separated by spaces for SSH access:"
+    read usersSSH
+    if [ -z "$usersSSH" ]; then
+        handle_error "No users provided for SSH access"
+        return 1
+    fi
+
+    # Configure SSH settings securely
+    cat <<EOF > /etc/ssh/sshd_config
+# Package generated configuration file
+# See the sshd_config(5) manpage for details
+
+Port 3784
+Protocol 2
+HostKey /etc/ssh/ssh_host_rsa_key
+HostKey /etc/ssh/ssh_host_ecdsa_key
+HostKey /etc/ssh/ssh_host_ed25519_key
+UsePrivilegeSeparation yes
+KeyRegenerationInterval 3600
+SyslogFacility AUTH
+LogLevel VERBOSE
+LoginGraceTime 30  # Shortened login grace time
+PermitRootLogin no
+StrictModes yes
+RSAAuthentication yes
+PubkeyAuthentication yes
+IgnoreRhosts yes
+RhostsRSAAuthentication no
+HostbasedAuthentication no
+PermitEmptyPasswords no
+ChallengeResponseAuthentication no  # Set to 'no' to avoid penalties
+PasswordAuthentication yes
+X11Forwarding no
+PrintMotd no
+PrintLastLog no
+TCPKeepAlive yes
+MaxStartups 2
+MaxAuthTries 3  # Limits authentication attempts to reduce brute force risks
+ClientAliveInterval 300
+ClientAliveCountMax 0
+AllowTcpForwarding no
+UseDNS no
+PermitUserEnvironment no
+AllowUsers $usersSSH
+EOF
+
+    # Restart the SSH service and check for errors
+    systemctl restart sshd
+    if [ $? -ne 0 ]; then
+        handle_error "Failed to restart SSH service"
+        return 1
+    fi
+
+    # Set up SSH keys for secure authentication
+    if [ ! -d ~/.ssh ]; then
+        mkdir -p ~/.ssh
+        chmod 700 ~/.ssh
+    fi
+
+    ssh-keygen -t rsa -b 2048 -f ~/.ssh/id_rsa -N ""
+    if [ $? -ne 0 ]; then
+        handle_error "SSH key generation failed"
+        return 1
+    fi
+
+    echo "SSH configuration is complete. SSH keys generated and settings applied." >> "$output_file"
+}
+
+############################################################################# Define Password config ############################################################################
+function password_policy() {
+    echo "Starting password policy setup for common-auth and common-password" >> "$output_file"
+    
+    # Backup current configuration files
+    echo "Backing up /etc/login.defs" >> "$output_file"
+    cp /etc/login.defs /etc/login.defs.bak
+    
+    # Modify /etc/login.defs
+    sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS    30/' /etc/login.defs
+    sed -i 's/^PASS_MIN_DAYS.*/PASS_MIN_DAYS    2/' /etc/login.defs
+    sed -i 's/^PASS_WARN_AGE.*/PASS_WARN_AGE    7/' /etc/login.defs
+    echo "Password policies have been set in /etc/login.defs."
+
+    # Uninstall libpam-pwquality if it exists to avoid conflicts
+    apt-get -y -qq purge libpam-pwquality
+
+    # Install libpam-cracklib if not already installed
+    apt-get -y -qq install libpam-cracklib
+
+    # Backup PAM configuration files
+    echo "Backing up /etc/pam.d/common-auth and /etc/pam.d/common-password" >> "$output_file"
+    cp /etc/pam.d/common-auth /etc/pam.d/common-auth.bak
+    cp /etc/pam.d/common-password /etc/pam.d/common-password.bak
+
+    # Update /etc/pam.d/common-auth for account lockout policy
+    sed -i '/^auth.*pam_tally2.so/d' /etc/pam.d/common-auth
+    echo "auth required pam_faillock.so preauth silent audit deny=3 unlock_time=1800" >> /etc/pam.d/common-auth
+    echo "auth required pam_faillock.so authfail audit deny=3 unlock_time=1800" >> /etc/pam.d/common-auth
+    echo "auth sufficient pam_faillock.so authsucc audit" >> /etc/pam.d/common-auth
+    echo "Account lockout policy set in /etc/pam.d/common-auth" >> "$output_file"
+
+    # Remove 'nullok' option from common-auth to prevent null passwords
+    sed -i 's/nullok//g' /etc/pam.d/common-auth
+    echo "Null password authentication disabled in /etc/pam.d/common-auth" >> "$output_file"
+
+    # Update /etc/pam.d/common-password with pam_cracklib settings
+    sed -i '/^password.*pam_cracklib.so/d' /etc/pam.d/common-password
+    sed -i '/^password.*pam_unix.so/ s/$/ minlen=16 remember=5/' /etc/pam.d/common-password
+    echo "password requisite pam_cracklib.so try_first_pass retry=3 difok=4 minlen=16 lcredit=-1 ucredit=-1 dcredit=-1 ocredit=-1 maxrepeat=2 reject_username gecoscheck enforce_for_root" >> /etc/pam.d/common-password
+
+    echo "Password policies have been set for PAM configurations" >> "$output_file"
+
+    # Apply the changes with pam-auth-update
+    pam-auth-update --force
+    if [ $? -ne 0 ]; then
+        handle_error "Password policies configuration failed"
+        return 1
+    fi
+}
+
+
+
+############################################################################# Define system kernel function ############################################################################
+function system_kernel() {
+    echo "sysctl stuff initializing" >> "$output_file"
+    {
+    echo "backing up /etc/sysctl.conf" >> "$output_file"
+    cp /etc/sysctl.conf /etc/sysctl.conf.bak
+    echo > /etc/sysctl.conf
+    echo -e "# Controls IP packet forwarding\nnet.ipv4.ip_forward = 0\n\n# IP Spoofing protection\nnet.ipv4.conf.all.rp_filter = 1\nnet.ipv4.conf.default.rp_filter = 1\n\n# Ignore ICMP broadcast requests\nnet.ipv4.icmp_echo_ignore_broadcasts = 1\n\n# Disable source packet routing\nnet.ipv4.conf.all.accept_source_route = 0\nnet.ipv6.conf.all.accept_source_route = 0\nnet.ipv4.conf.default.accept_source_route = 0\nnet.ipv6.conf.default.accept_source_route = 0\n\n# Ignore send redirects\nnet.ipv4.conf.all.send_redirects = 0\nnet.ipv4.conf.default.send_redirects = 0\n\n# Block SYN attacks\nnet.ipv4.tcp_syncookies = 1\nnet.ipv4.tcp_max_syn_backlog = 2048\nnet.ipv4.tcp_synack_retries = 2\nnet.ipv4.tcp_syn_retries = 5\n\n# Log Martians\nnet.ipv4.conf.all.log_martians = 1\nnet.ipv4.icmp_ignore_bogus_error_responses = 1\n\n# Ignore ICMP redirects\nnet.ipv4.conf.all.accept_redirects = 0\nnet.ipv6.conf.all.accept_redirects = 0\nnet.ipv4.conf.default.accept_redirects = 0\nnet.ipv6.conf.default.accept_redirects = 0\n\n# Ignore Directed pings\nnet.ipv4.icmp_echo_ignore_all = 1\n\n# Accept Redirects? No, this is not router\nnet.ipv4.conf.all.secure_redirects = 0\n\n# Log packets with impossible addresses to kernel log? yes\nnet.ipv4.conf.default.secure_redirects = 0\n\n########## IPv6 networking start ##############\n# Number of Router Solicitations to send until assuming no routers are present.\n# This is host and not router\nnet.ipv6.conf.default.router_solicitations = 0\n\n# Accept Router Preference in RA?\nnet.ipv6.conf.default.accept_ra_rtr_pref = 0\n\n# Learn Prefix Information in Router Advertisement\nnet.ipv6.conf.default.accept_ra_pinfo = 0\n\n# Setting controls whether the system will accept Hop Limit settings from a router advertisement\nnet.ipv6.conf.default.accept_ra_defrtr = 0\n\n#router advertisements can cause the system to assign a global unicast address to an interface\nnet.ipv6.conf.default.autoconf = 0\n\n#how many neighbor solicitations to send out per address?\nnet.ipv6.conf.default.dad_transmits = 0\n\n# How many global unicast IPv6 addresses can be assigned to each interface?
+    net.ipv6.conf.default.max_addresses = 1\n\n########## Other ##########\nfs.suid_dumpable = 0\nkernel.exec-shield = 2\nkernel.randomize_va_space = 2\nkernel.sysrq = 0\nnet.ipv4.tcp_rfc1337 = 1\n" >> /etc/sysctl.conf
+    sysctl -p >> /dev/null
+    echo "Sysctl has been configured." >> "$output_file" 
+    }
+    if [ $? -ne 0 ]; then
+        handle_error "sysctl.conf went error"
+        return 1
+    fi
+    # get_user_input
+}
+
+############################################################################# Define media files ############################################################################
+function media_files() {
+    echo "starting to search for all types of media files" >> "$output_file"
+    {
+        # List of file extensions to search for
+        extensions=(
+            "*.midi" "*.mid" "*.mod" "*.mp3" "*.mp2" "*.mpa" "*.m4a" "*.abs" "*.mpega" "*.au" "*.snd"
+            "*.wav" "*.aiff" "*.aif" "*.sid" "*.flac" "*.ogg" "*.aac" "*.mpeg" "*.mpg" "*.mpe" "*.dl"
+            "*.movie" "*.movi" "*.mv" "*.iff" "*.anim5" "*.anim3" "*.anim7" "*.avi" "*.vfw" "*.avx"
+            "*.fli" "*.flc" "*.mov" "*.qt" "*.spl" "*.swf" "*.dcr" "*.dir" "*.dxr" "*.rpm" "*.rm" 
+            "*.smi" "*.ra" "*.ram" "*.rv" "*.wmv" "*.asf" "*.asx" "*.wma" "*.wax" "*.wmx" "*.3gp"
+            "*.mp4" "*.flv" "*.m4v" "*.tiff" "*.tif" "*.rs" "*.im1" "*.gif" "*.jpeg" "*.jpg" "*.jpe"
+            "*.png" "*.rgb" "*.xwd" "*.xpm" "*.ppm" "*.pbm" "*.pgm" "*.pcx" "*.ico" "*.svg" "*.svgz"
+            "*.bmp" "*.img" "*.txt" "*.exe" "*.msi" "*.bat" "*.sh"
+        )
+
+        # Loop through each file extension and find matching files
+        for ext in "${extensions[@]}"; do
+            find / -name "$ext" -type f >> "$output_file"
+        done
+    }
+    if [ $? -ne 0 ]; then
+        handle_error "media files not worked"
+        return 1
+    fi
+    # get_user_input
+}
+
+############################################################## Services Config #################################################################
+function services_config() {
+    echo "Starting service config" >> "$output_file"
+    {
+    # List of services to manage
+    services=("apache2" "nginx" "samba" "vsftpd" "nfs-server")
+
+    for service in "${services[@]}"; do
+        read -p "Do you want to keep $service? (y/n): " keep_service
+        if [[ $keep_service == "y" ]]; then
+            echo "Configuring security settings for $service..."
+
+            # Basic security configurations
+            case $service in
+                apache2)
+                    sudo a2enmod headers
+                    echo "Header always set X-Content-Type-Options 'nosniff'" | sudo tee -a /etc/apache2/conf-available/security.conf
+                    sudo systemctl restart apache2
+                    echo "$service security settings configured." >> "$output_file"
+                    ;;
+                nginx)
+                    sudo sed -i '/^server_tokens/c\server_tokens off;' /etc/nginx/nginx.conf
+                    sudo systemctl restart nginx
+                    echo "$service security settings configured." >> "$output_file"
+                    ;;
+                samba)
+                    sudo sed -i '/^guest ok =/c\guest ok = no' /etc/samba/smb.conf
+                    sudo systemctl restart smbd
+                    echo "$service security settings configured." >> "$output_file"
+                    ;;
+                vsftpd)
+                    sudo sed -i '/^anonymous_enable/c\anonymous_enable=NO' /etc/vsftpd.conf
+                    sudo systemctl restart vsftpd
+                    echo "$service security settings configured." >> "$output_file"
+                    ;;
+                nfs-server)
+                    sudo ufw allow from 192.168.0.0/24 to any port nfs
+                    echo "$service security settings configured." >> "$output_file"
+                    ;;
+            esac
+
+        elif [[ $keep_service == "n" ]]; then
+            # Stop and disable service
+            sudo systemctl stop "$service" 2>/dev/null
+            sudo systemctl disable "$service" 2>/dev/null
+            echo "$service stopped and disabled." >> "$output_file"
+
+            # Ask if user wants to remove the service if installed through a package
+            if dpkg -l | grep -q "$service"; then
+                read -p "Do you want to remove $service package? (y/n): " remove_package
+                if [[ $remove_package == "y" ]]; then
+                    sudo apt-get purge "$service" -y
+                    echo "$service package removed." >> "$output_file"
+                else
+                    echo "$service package was not removed." >> "$output_file"
+                fi
+            else
+                echo "$service package not found, only service disabled." >> "$output_file"
+            fi
+        else
+            echo "$service was left unchanged." >> "$output_file"
+        fi
+    done
+    }
+    if [ $? -ne 0 ]; then
+        handle_error "services config gone wrong"
+        return 1
+    fi
+
+    # get_user_input
+
+}
+
+#################################################################### Crontabs ##################################################################
+function crontabs_config() {
+    echo "configuring crontabs" >> "$output_file"
+    {
+    crontab -l > ~/Desktop/backups/crontab-old
+    crontab -r
+    echo "Crontab has been backed up. All startup tasks have been removed from crontab." >> "$output_file"
+    /bin/rm -f /etc/cron.deny /etc/at.deny
+    echo root | sudo tee /etc/cron.allow > /dev/null
+    echo root | sudo tee /etc/at.allow > /dev/null
+    /bin/chown root:root /etc/cron.allow /etc/at.allow
+    /bin/chmod 400 /etc/cron.allow /etc/at.allow
+    echo "Only root allowed in cron."
+    }
+    if [ $? -ne 0 ]; then
+        handle_error "cron config error"
+        return 1
+    fi
+
+    # get_user_input
+}
+
+################################################################### File Permissions ############################################################
+function file_permissions() {
+    echo "starting file permission changes" >> "$output_file"
+    {
+    clear
+    chmod 640 .bash_history
+    echo "Bash history file permissions set."
+
+    clear
+    chmod 600 /etc/shadow
+    echo "File permissions on shadow have been set."
+
+    clear
+    chmod 644 /etc/passwd
+    echo "File permissions on passwd have been set."
+    }
+    if [ $? -ne 0 ]; then
+        handle_error "file permissions error, please check permissions for .bash_history    /etc/shadow    /etc/passwd"
+        return 1
+    fi
+}
+
+
+############################################################################# main ############################################################################
+    # main loop
+    while true; do
+        display_glossary
+        get_user_input
+    done
